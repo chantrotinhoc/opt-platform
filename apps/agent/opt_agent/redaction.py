@@ -33,6 +33,10 @@ class Redactor:
     _nonce: str = field(default_factory=lambda: secrets.token_hex(3))
 
     def _token(self, kind: str, value: str) -> str:
+        if kind != "LIT":
+            # A matched value may already contain LIT placeholders (from the
+            # literal pass in redact); store the original text, not those.
+            value = self.restore(value)
         if value in self._forward:
             return self._forward[value]
         n = self._counters.get(kind, 0) + 1

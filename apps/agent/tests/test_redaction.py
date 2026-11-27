@@ -56,3 +56,12 @@ def test_previous_placeholder_in_input_survives_round_trip():
     out = r.redact(text)
     assert "10.0.0.1" not in out
     assert r.restore(out) == text
+
+
+def test_credential_containing_earlier_placeholder_round_trips():
+    r = Redactor()
+    token = r.redact("10.0.0.1")
+    text = f'password="{token}" next'
+    out = r.redact(text)
+    assert token not in out
+    assert r.restore(out) == text
