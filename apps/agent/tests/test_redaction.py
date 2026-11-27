@@ -39,3 +39,20 @@ def test_literal_placeholder_like_text_survives_round_trip():
     r = Redactor()
     text = "IP_1 10.0.0.1 SECRET_1"
     assert r.restore(r.redact(text)) == text
+
+
+def test_escaped_quote_in_credential_redacted():
+    r = Redactor()
+    text = 'password="abc\\"suffix" next'
+    out = r.redact(text)
+    assert "suffix" not in out and "abc" not in out
+    assert r.restore(out) == text
+
+
+def test_previous_placeholder_in_input_survives_round_trip():
+    r = Redactor()
+    token = r.redact("10.0.0.1")
+    text = f"{token} 10.0.0.1"
+    out = r.redact(text)
+    assert "10.0.0.1" not in out
+    assert r.restore(out) == text

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 _SECRET = re.compile(
     r"(?i)\b((?:password|passwd|pwd|token|secret|api[_-]?key)\s*[=:]\s*)"
-    r"(?:\"([^\"]*)\"|'([^']*)'|([^\s'\",;]+))")
+    r"(?:\"((?:[^\"\\]|\\.)*)\"|'((?:[^'\\]|\\.)*)'|([^\s'\",;]+))")
 
 _IPV6_CANDIDATE = re.compile(r"(?<![\w:])[0-9A-Fa-f:]*:[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(?![\w:])")
 
@@ -42,7 +42,15 @@ class Redactor:
         self._reverse[token] = value
         return token
 
+    def _token_re(self) -> re.Pattern[str]:
+        return re.compile(rf"<[A-Z]+_\d+_{self._nonce}>")
+
     def redact(self, text: str) -> str:
+        # Input that already contains one of our own placeholders (e.g. pasted
+        # from an earlier answer) is itself redacted as a literal, so restore()
+        # gives it back unchanged instead of expanding it.
+        text = self._token_re().sub(lambda m: self._token("LIT", m.group(0)), text)
+
         def secret(m: re.Match[str]) -> str:
             if m.group(2) is not None:
                 return f'{m.group(1)}"{self._token("SECRET", m.group(2))}"'
@@ -64,6 +72,5 @@ class Redactor:
         return text
 
     def restore(self, text: str) -> str:
-        for token in sorted(self._reverse, key=len, reverse=True):
-            text = text.replace(token, self._reverse[token])
-        return text
+        # One pass, so a restored value is never expanded a second time.
+        return self._token_re().sub(lambda m: self._reverse.get(m.group(0), m.group(0)), text)
