@@ -1,4 +1,6 @@
 """Built-in recon steps and the report, without network or database."""
+import asyncio
+import time
 from datetime import datetime, timezone
 
 import httpx
@@ -8,12 +10,12 @@ from opt_api import recon, report
 
 
 def fake_clients(monkeypatch, handler):
-    real = httpx.Client
+    real = httpx.AsyncClient
 
     def factory(**kw):
         kw.pop("verify", None)
         return real(transport=httpx.MockTransport(lambda req: handler(req, kw)), **kw)
-    monkeypatch.setattr(recon.httpx, "Client", factory)
+    monkeypatch.setattr(recon.httpx, "AsyncClient", factory)
 
 
 def test_http_only_service_reports_missing_tls_and_headers(monkeypatch):
@@ -141,3 +143,29 @@ def test_probe_stops_when_total_budget_is_spent(monkeypatch):
     monkeypatch.setattr(recon, "TOTAL_BUDGET", 0)
     recon._builtin_http("slow.lab.example.vn", {})
     assert calls == []
+
+
+class _Trickle(httpx.AsyncByteStream):
+    """A body that sends one byte per interval, forever."""
+    def __init__(self, interval):
+        self.interval = interval
+
+    async def __aiter__(self):
+        while True:
+            await asyncio.sleep(self.interval)
+            yield b"x"
+
+
+@pytest.mark.parametrize("phase", ["headers", "body"])
+def test_deadline_holds_against_slow_servers(monkeypatch, phase):
+    """Each read stays under the per-operation timeout, but the probe still ends on time."""
+    async def handler(req, _):
+        if phase == "headers":
+            await asyncio.sleep(30)
+        return httpx.Response(200, stream=_Trickle(0.05))
+    fake_clients(monkeypatch, handler)
+    monkeypatch.setattr(recon, "TOTAL_BUDGET", 0.5)
+    started = time.monotonic()
+    out = recon._builtin_http("slow.lab.example.vn", {})
+    assert time.monotonic() - started < 2
+    assert out.data["reachable"] is False

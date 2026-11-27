@@ -12,6 +12,7 @@ Safety rules kept from the design:
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -96,19 +97,29 @@ def _authority(target: str) -> str:
     return f"[{target}]" if ":" in target else target
 
 
-def _get(client: httpx.Client, url: str, deadline: float) -> Probe | None:
+async def _read(client: httpx.AsyncClient, url: str) -> Probe:
+    async with client.stream("GET", url) as r:
+        body = b""
+        async for chunk in r.aiter_bytes():
+            body += chunk
+            if len(body) >= MAX_BODY:
+                break
+        return Probe(r.status_code, r.headers, str(r.url), body[:MAX_BODY].decode("utf-8", "replace"))
+
+
+async def _get(client: httpx.AsyncClient, url: str, deadline: float) -> Probe | None:
+    """One GET, cancelled outright at the probe deadline.
+
+    httpx timeouts bound each network operation, not the request: a server that
+    trickles headers or body bytes could hold a read open indefinitely. The
+    wall-clock limit is therefore enforced around connect, headers and body together.
+    """
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         return None
     try:
-        with client.stream("GET", url, timeout=min(HTTP_TIMEOUT, remaining)) as r:
-            body = b""
-            for chunk in r.iter_bytes():
-                body += chunk
-                if len(body) >= MAX_BODY or time.monotonic() > deadline:
-                    break
-            return Probe(r.status_code, r.headers, str(r.url), body[:MAX_BODY].decode("utf-8", "replace"))
-    except httpx.HTTPError:
+        return await asyncio.wait_for(_read(client, url), timeout=remaining)
+    except (httpx.HTTPError, asyncio.TimeoutError):
         return None
 
 
@@ -119,22 +130,29 @@ def _redirects_to_https(probe: Probe, target: str) -> bool:
     return loc.scheme == "https" and (loc.host or "").lower().rstrip(".") == target.lower()
 
 
-def _builtin_http(target: str, _ctx: dict) -> StepOutput:
-    findings: list[NewFinding] = []
-    headers = {"User-Agent": "OPT-recon/0.2 (+authorised test, see RoE)"}
-    host = _authority(target)
+async def _probe(host: str, headers: dict) -> tuple[Probe | None, Probe | None, bool]:
+    """HTTPS (strict, then unverified), then HTTP, all within TOTAL_BUDGET seconds."""
     deadline = time.monotonic() + TOTAL_BUDGET
-    with httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=False, headers=headers) as strict:
-        https = _get(strict, f"https://{host}/", deadline)
+    opts = {"timeout": HTTP_TIMEOUT, "follow_redirects": False, "headers": headers}
+    async with httpx.AsyncClient(**opts) as strict:
+        https = await _get(strict, f"https://{host}/", deadline)
     untrusted_tls = False
     if https is None:
         # Lab services often use self-signed certificates: retry without verification
         # and report it, rather than missing the service.
-        with httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=False, headers=headers, verify=False) as lax:
-            https = _get(lax, f"https://{host}/", deadline)
+        async with httpx.AsyncClient(**opts, verify=False) as lax:
+            https = await _get(lax, f"https://{host}/", deadline)
         untrusted_tls = https is not None
-    with httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=False, headers=headers) as client:
-        http = _get(client, f"http://{host}/", deadline)
+    async with httpx.AsyncClient(**opts) as client:
+        http = await _get(client, f"http://{host}/", deadline)
+    return https, http, untrusted_tls
+
+
+def _builtin_http(target: str, _ctx: dict) -> StepOutput:
+    findings: list[NewFinding] = []
+    headers = {"User-Agent": "OPT-recon/0.2 (+authorised test, see RoE)"}
+    host = _authority(target)
+    https, http, untrusted_tls = asyncio.run(_probe(host, headers))
 
     def summary(r: Probe | None) -> dict | None:
         if r is None:
