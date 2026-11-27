@@ -102,3 +102,13 @@ def test_app_role_cannot_create_tenants():
     with _app_conn() as conn:
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute("INSERT INTO tenant (id, name, kms_key_id) VALUES ('evil', 'x', 'k')")
+
+
+def test_child_rows_cannot_reference_another_tenants_engagement(client):
+    """FK checks bypass RLS, so the composite (tenant_id, engagement_id) key must
+    reject this even for the table owner."""
+    eid = _engagement(client, B, "fk-b", [{"kind": "domain", "value": "lab.example.vn"}])
+    with psycopg.connect(os.environ["OPT_ADMIN_DATABASE_URL"]) as owner:
+        with pytest.raises(psycopg.errors.ForeignKeyViolation):
+            owner.execute("INSERT INTO scope_rule (tenant_id, engagement_id, kind, value) "
+                          "VALUES ('demo-a', %s, 'domain', 'evil.vn')", (eid,))

@@ -8,10 +8,12 @@ người duyệt (kiểu CAI), và trải nghiệm workspace/báo cáo/lịch qu
 
 ## Nguyên tắc thiết kế
 
-1. **Scope-first:** không lệnh nào chạy khi target nằm ngoài scope, ngoài khung giờ, hoặc RoE hết hạn.
-2. **Human-in-the-loop theo rủi ro:** recon thụ động tự chạy; bước rủi ro trung bình trở lên chờ người duyệt.
-3. **Dữ liệu nhạy cảm không rời hạ tầng:** model router gửi dữ liệu `local_only` sang LLM local, và che dữ liệu trước khi gọi cloud.
-4. **Cách ly tenant:** PostgreSQL RLS, namespace Kubernetes riêng và khóa mã hóa riêng cho từng tenant.
+Trạng thái ghi rõ cho từng nguyên tắc: **đã có** (có code và test trong repo) hoặc **dự kiến** (theo sprint plan).
+
+1. **Scope-first (đã có ở API):** Scope Guard từ chối target ngoài scope, target chưa xác minh khi quét chủ động, RoE hết hạn, và quét chủ động ngoài khung giờ. Recon thụ động (OSINT) không bị giới hạn khung giờ. Kiểm soát tầng mạng qua egress gateway: dự kiến S3.
+2. **Người duyệt theo rủi ro (đã có quy tắc + workflow):** bước rủi ro cao luôn chờ người duyệt; bước rủi ro trung bình chờ duyệt khi do agent AI đề xuất. Scope được kiểm tra lại sau khi duyệt.
+3. **Dữ liệu nhạy cảm không rời hạ tầng (khung, dự kiến S6):** model router và lớp che dữ liệu đã có và có test, nhưng chưa gắn vào đường gọi LLM thật. Chưa nên coi là biện pháp bảo vệ đang hoạt động.
+4. **Cách ly tenant:** PostgreSQL RLS đã có và có test trên PostgreSQL thật. Namespace Kubernetes, IP egress và khóa mã hóa riêng cho từng tenant: dự kiến (xem docs/onprem-deployment.md), Helm chart hiện chưa tạo các tài nguyên này.
 
 ## Cấu trúc
 

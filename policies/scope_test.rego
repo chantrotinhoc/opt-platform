@@ -40,3 +40,12 @@ test_wildcard_excludes_apex if {
 test_high_risk_requires_verification if {
 	not scope.allow with input as {"engagement": eng, "target": "app.example.vn", "risk": "high", "target_verified": false, "in_window": true}
 }
+
+test_trailing_dot_rules_match_like_python if {
+	dotted := object.union(eng, {"rules": [
+		{"kind": "domain", "value": "example.vn.", "exclude": false},
+		{"kind": "domain", "value": "pay.example.vn.", "exclude": true},
+	]})
+	scope.allow with input as {"engagement": dotted, "target": "app.example.vn", "risk": "passive"}
+	not scope.allow with input as {"engagement": dotted, "target": "pay.example.vn", "risk": "passive"}
+}

@@ -15,6 +15,17 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: make test
 
+  worker:
+    name: scan workflow (Temporal test server)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r requirements-dev.txt temporalio==1.37.0 pytest-asyncio==1.5.0
+      - run: PYTHONPATH=apps/worker python -m pytest -q apps/worker -o asyncio_mode=auto
+        env: { OPT_REQUIRE_TEMPORAL: "1" }
+
   db:
     name: tenant isolation (PostgreSQL)
     runs-on: ubuntu-latest

@@ -1,11 +1,11 @@
-# Local development only. Production runs on Kubernetes in the ITSTARVN data center.
+# Local development only. All ports bind to 127.0.0.1; credentials are throwaway. Production runs on Kubernetes in the ITSTARVN data center.
 # `make up` starts postgres + api. `docker compose -f docker-compose.dev.yml --profile full up -d`
 # also starts Temporal, OPA and MinIO (needed from S3/S4).
 services:
   postgres:
     image: postgres:16
     environment: { POSTGRES_PASSWORD: dev, POSTGRES_DB: opt }
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]
     volumes:
       - ./deploy/dev/initdb.sh:/docker-entrypoint-initdb.d/00_initdb.sh:ro
       - ./db/migrations:/opt/opt-sql/migrations:ro
@@ -19,7 +19,7 @@ services:
     build: { context: ., dockerfile: apps/api/Dockerfile }
     environment:
       OPT_DATABASE_URL: postgresql://opt_app:opt_app_dev@postgres:5432/opt
-    ports: ["8000:8000"]
+    ports: ["127.0.0.1:8000:8000"]
     depends_on:
       postgres: { condition: service_healthy }
 
@@ -27,19 +27,19 @@ services:
     profiles: [full]
     image: temporalio/auto-setup:1.24
     environment: { DB: postgres12, DB_PORT: 5432, POSTGRES_USER: postgres, POSTGRES_PWD: dev, POSTGRES_SEEDS: postgres }
-    ports: ["7233:7233"]
+    ports: ["127.0.0.1:7233:7233"]
     depends_on:
       postgres: { condition: service_healthy }
 
   opa:
     profiles: [full]
     image: openpolicyagent/opa:1.4.2
-    command: ["run", "--server", "--addr", ":8181", "/policies"]
+    command: ["run", "--server", "--addr", "0.0.0.0:8181", "/policies"]
     volumes: ["./policies:/policies:ro"]
-    ports: ["8181:8181"]
+    ports: ["127.0.0.1:8181:8181"]
 
   minio:
     profiles: [full]
     image: minio/minio:RELEASE.2024-12-18T13-15-44Z
     command: server /data --console-address :9001
-    ports: ["9000:9000", "9001:9001"]
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]

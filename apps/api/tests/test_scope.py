@@ -76,3 +76,9 @@ def test_wildcard_rule_excludes_apex():
     e = eng(rules=[ScopeRule("domain", "*.example.vn")])
     assert in_scope(e, "a.example.vn")
     assert not in_scope(e, "example.vn")
+
+
+def test_trailing_dot_rules():
+    e = eng(rules=[ScopeRule("domain", "example.vn."), ScopeRule("domain", "pay.example.vn.", exclude=True)])
+    assert in_scope(e, "app.example.vn")
+    assert not in_scope(e, "pay.example.vn")

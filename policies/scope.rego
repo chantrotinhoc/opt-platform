@@ -23,14 +23,14 @@ matches(rule) if {
 	rule.kind == "domain"
 	not startswith(rule.value, "*.")
 	t := lower(trim_suffix(input.target, "."))
-	t == lower(rule.value)
+	t == lower(trim_suffix(rule.value, "."))
 }
 
 matches(rule) if {
 	rule.kind == "domain"
 	not startswith(rule.value, "*.")
 	t := lower(trim_suffix(input.target, "."))
-	endswith(t, concat("", [".", lower(rule.value)]))
+	endswith(t, concat("", [".", lower(trim_suffix(rule.value, "."))]))
 }
 
 # "*.example.vn" matches subdomains only, not the apex.
@@ -38,7 +38,7 @@ matches(rule) if {
 	rule.kind == "domain"
 	startswith(rule.value, "*.")
 	t := lower(trim_suffix(input.target, "."))
-	endswith(t, lower(substring(rule.value, 1, -1)))
+	endswith(t, lower(trim_suffix(substring(rule.value, 1, -1), ".")))
 }
 
 matches(rule) if {

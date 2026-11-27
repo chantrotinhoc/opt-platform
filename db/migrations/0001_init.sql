@@ -21,13 +21,17 @@ CREATE TABLE engagement (
     roe_valid_from  timestamptz NOT NULL,
     roe_valid_to    timestamptz NOT NULL,
     sensitivity     text NOT NULL DEFAULT 'internal' CHECK (sensitivity IN ('public', 'internal', 'restricted')),
-    CHECK (roe_valid_from < roe_valid_to)
+    CHECK (roe_valid_from < roe_valid_to),
+    -- Lets child tables reference (tenant_id, id): FK checks bypass RLS, so the
+    -- tenant must be part of the key to stop cross-tenant references.
+    UNIQUE (tenant_id, id)
 );
 
 CREATE TABLE scope_rule (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id       text NOT NULL REFERENCES tenant(id),
-    engagement_id   uuid NOT NULL REFERENCES engagement(id) ON DELETE CASCADE,
+    engagement_id   uuid NOT NULL,
+    FOREIGN KEY (tenant_id, engagement_id) REFERENCES engagement (tenant_id, id) ON DELETE CASCADE,
     kind            text NOT NULL CHECK (kind IN ('domain', 'cidr')),
     value           text NOT NULL,
     exclude         boolean NOT NULL DEFAULT false
@@ -45,7 +49,8 @@ CREATE TABLE target (
 CREATE TABLE finding (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id       text NOT NULL REFERENCES tenant(id),
-    engagement_id   uuid NOT NULL REFERENCES engagement(id),
+    engagement_id   uuid NOT NULL,
+    FOREIGN KEY (tenant_id, engagement_id) REFERENCES engagement (tenant_id, id),
     title           text NOT NULL,
     cwe             text,
     cvss_vector     text,
@@ -60,7 +65,8 @@ CREATE TABLE finding (
 CREATE TABLE agent_step (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id       text NOT NULL REFERENCES tenant(id),
-    engagement_id   uuid NOT NULL REFERENCES engagement(id),
+    engagement_id   uuid NOT NULL,
+    FOREIGN KEY (tenant_id, engagement_id) REFERENCES engagement (tenant_id, id),
     agent           text NOT NULL,
     model           text NOT NULL,
     routed_to       text NOT NULL CHECK (routed_to IN ('cloud', 'local_large', 'local_small')),

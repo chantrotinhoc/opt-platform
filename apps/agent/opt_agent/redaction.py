@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import secrets
 from dataclasses import dataclass, field
 
-_SECRET = re.compile(r"(?i)\b((?:password|passwd|pwd|token|secret|api[_-]?key)[=:]\s?)([^\s'\",;]+)")
+_SECRET = re.compile(
+    r"(?i)\b((?:password|passwd|pwd|token|secret|api[_-]?key)\s*[=:]\s*)"
+    r"(?:\"([^\"]*)\"|'([^']*)'|([^\s'\",;]+))")
 
 _IPV6_CANDIDATE = re.compile(r"(?<![\w:])[0-9A-Fa-f:]*:[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(?![\w:])")
 
@@ -25,19 +28,29 @@ class Redactor:
     _forward: dict[str, str] = field(default_factory=dict)
     _reverse: dict[str, str] = field(default_factory=dict)
     _counters: dict[str, int] = field(default_factory=dict)
+    # A per-instance nonce makes placeholders impossible to confuse with text
+    # that already looks like a placeholder (e.g. a literal "IP_1").
+    _nonce: str = field(default_factory=lambda: secrets.token_hex(3))
 
     def _token(self, kind: str, value: str) -> str:
         if value in self._forward:
             return self._forward[value]
         n = self._counters.get(kind, 0) + 1
         self._counters[kind] = n
-        token = f"{kind}_{n}"
+        token = f"<{kind}_{n}_{self._nonce}>"
         self._forward[value] = token
         self._reverse[token] = value
         return token
 
     def redact(self, text: str) -> str:
-        text = _SECRET.sub(lambda m: m.group(1) + self._token("SECRET", m.group(2)), text)
+        def secret(m: re.Match[str]) -> str:
+            if m.group(2) is not None:
+                return f'{m.group(1)}"{self._token("SECRET", m.group(2))}"'
+            if m.group(3) is not None:
+                return f"{m.group(1)}'{self._token('SECRET', m.group(3))}'"
+            return m.group(1) + self._token("SECRET", m.group(4))
+
+        text = _SECRET.sub(secret, text)
         def ipv6(m: re.Match[str]) -> str:
             try:
                 ipaddress.IPv6Address(m.group(0))
