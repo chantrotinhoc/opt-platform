@@ -97,3 +97,26 @@ def test_other_tenant_cannot_see_or_start_scans(client, token):
     assert client.get(f"/api/v1/engagements/{eid}/findings", headers=b).json() == []
     assert client.post(f"/api/v1/engagements/{eid}/scans", json={"target": "juice.lab.example.vn"},
                        headers=b).status_code == 404
+
+
+def test_earlier_scan_report_keeps_findings_seen_again_later(client, token):
+    lead = token("demo-a")
+    eid = _engagement(client, lead)
+    first, second = (client.post(f"/api/v1/engagements/{eid}/scans", json={"target": "juice.lab.example.vn"},
+                                 headers=lead).json()["id"] for _ in range(2))
+    for sid in (first, second):
+        assert len(client.get(f"/api/v1/scans/{sid}/report?format=json", headers=lead).json()["findings"]) == 2
+
+
+def test_denied_scan_is_kept_in_the_audit_log(client, token):
+    import os
+
+    import psycopg
+    lead = token("demo-a")
+    eid = _engagement(client, lead)
+    assert client.post(f"/api/v1/engagements/{eid}/scans", json={"target": "google.com"}, headers=lead).status_code == 403
+    with psycopg.connect(os.environ["OPT_DATABASE_URL"]) as conn:
+        conn.execute("SELECT set_config('app.tenant_id', 'demo-a', false)")
+        n = conn.execute("SELECT count(*) FROM audit_event WHERE action = 'scan.denied' AND object = %s",
+                         (eid,)).fetchone()[0]
+    assert n == 1

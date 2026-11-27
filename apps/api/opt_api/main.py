@@ -151,15 +151,18 @@ def start_scan(engagement_id: UUID, body: ScanIn, background: BackgroundTasks,
         else:
             decision_reason = None
         if decision_reason:
+            # Recorded and committed before the 403 below, so denials stay in the audit log.
             audit.append(conn, p.tenant, p.username, "scan.denied", str(engagement_id),
                          {"target": target, "engine": body.engine, "reason": decision_reason})
-            raise HTTPException(status_code=403, detail=decision_reason)
-        row = conn.execute(
-            "INSERT INTO scan (tenant_id, engagement_id, target, engine, requested_by) "
-            "VALUES (%s, %s, %s, %s, %s) RETURNING id",
-            (p.tenant, engagement_id, target, body.engine, p.username)).fetchone()
-        audit.append(conn, p.tenant, p.username, "scan.queued", str(row["id"]),
-                     {"engagement": str(engagement_id), "target": target, "engine": body.engine})
+        else:
+            row = conn.execute(
+                "INSERT INTO scan (tenant_id, engagement_id, target, engine, requested_by) "
+                "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                (p.tenant, engagement_id, target, body.engine, p.username)).fetchone()
+            audit.append(conn, p.tenant, p.username, "scan.queued", str(row["id"]),
+                         {"engagement": str(engagement_id), "target": target, "engine": body.engine})
+    if decision_reason:
+        raise HTTPException(status_code=403, detail=decision_reason)
     background.add_task(recon.run_scan, p.tenant, row["id"])
     return {"id": str(row["id"]), "status": "queued"}
 
@@ -202,7 +205,7 @@ def scan_report(scan_id: UUID, format: Literal["md", "json"] = Query(default="md
         s = _scan(conn, scan_id)
         e = conn.execute("SELECT name, roe_valid_from, roe_valid_to FROM engagement WHERE id = %s",
                          (s["engagement_id"],)).fetchone()
-        findings = _findings(conn, "scan_id = %s", scan_id)
+        findings = _findings(conn, "id IN (SELECT finding_id FROM scan_finding WHERE scan_id = %s)", scan_id)
         audit.append(conn, p.tenant, p.username, "report.view", str(scan_id), {"format": format})
     if format == "json":
         return {"scan": _json(s), "findings": [_json(f) for f in findings]}

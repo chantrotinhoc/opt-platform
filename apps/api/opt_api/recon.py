@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import socket
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,7 +36,9 @@ log = logging.getLogger("opt.recon")
 _ENGINE_ID_RE = re.compile(r"^[a-z0-9-]+-v[0-9]+$")
 _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
 _VERSION_RE = re.compile(r"\d+\.\d+")
-HTTP_TIMEOUT = 5.0
+HTTP_TIMEOUT = 5.0     # per request
+TOTAL_BUDGET = 15.0    # all requests of one probe together
+MAX_BODY = 65536       # bytes of body kept from any response
 
 
 def engines_dir() -> Path:
@@ -75,33 +78,69 @@ def _builtin_dns(target: str, _ctx: dict) -> StepOutput:
     return StepOutput({"addresses": addresses})
 
 
-def _get(client: httpx.Client, url: str) -> httpx.Response | None:
+@dataclass
+class Probe:
+    """What the probe keeps from one response: never more than MAX_BODY bytes of body."""
+    status: int
+    headers: httpx.Headers
+    url: str
+    body: str
+
+    @property
+    def is_redirect(self) -> bool:
+        return self.status in (301, 302, 303, 307, 308) and "location" in self.headers
+
+
+def _authority(target: str) -> str:
+    """Bracket IPv6 literals so the URL authority parses per RFC 3986."""
+    return f"[{target}]" if ":" in target else target
+
+
+def _get(client: httpx.Client, url: str, deadline: float) -> Probe | None:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return None
     try:
-        return client.get(url)
+        with client.stream("GET", url, timeout=min(HTTP_TIMEOUT, remaining)) as r:
+            body = b""
+            for chunk in r.iter_bytes():
+                body += chunk
+                if len(body) >= MAX_BODY or time.monotonic() > deadline:
+                    break
+            return Probe(r.status_code, r.headers, str(r.url), body[:MAX_BODY].decode("utf-8", "replace"))
     except httpx.HTTPError:
         return None
+
+
+def _redirects_to_https(probe: Probe, target: str) -> bool:
+    if not probe.is_redirect:
+        return False
+    loc = httpx.URL(probe.headers["location"])
+    return loc.scheme == "https" and (loc.host or "").lower().rstrip(".") == target.lower()
 
 
 def _builtin_http(target: str, _ctx: dict) -> StepOutput:
     findings: list[NewFinding] = []
     headers = {"User-Agent": "OPT-recon/0.2 (+authorised test, see RoE)"}
+    host = _authority(target)
+    deadline = time.monotonic() + TOTAL_BUDGET
     with httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=False, headers=headers) as strict:
-        https = _get(strict, f"https://{target}/")
+        https = _get(strict, f"https://{host}/", deadline)
     untrusted_tls = False
     if https is None:
         # Lab services often use self-signed certificates: retry without verification
         # and report it, rather than missing the service.
         with httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=False, headers=headers, verify=False) as lax:
-            https = _get(lax, f"https://{target}/")
+            https = _get(lax, f"https://{host}/", deadline)
         untrusted_tls = https is not None
     with httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=False, headers=headers) as client:
-        http = _get(client, f"http://{target}/")
+        http = _get(client, f"http://{host}/", deadline)
 
-    def summary(r: httpx.Response | None) -> dict | None:
+    def summary(r: Probe | None) -> dict | None:
         if r is None:
             return None
-        m = _TITLE_RE.search(r.text[:65536]) if "html" in r.headers.get("content-type", "") else None
-        return {"status": r.status_code, "server": r.headers.get("server"),
+        m = _TITLE_RE.search(r.body) if "html" in r.headers.get("content-type", "") else None
+        return {"status": r.status, "server": r.headers.get("server"),
                 "location": r.headers.get("location"), "title": m.group(1).strip()[:200] if m else None}
 
     data = {"https": summary(https), "http": summary(http)}
@@ -112,15 +151,15 @@ def _builtin_http(target: str, _ctx: dict) -> StepOutput:
         findings.append(NewFinding("Chứng chỉ TLS không được tin cậy", "low", "tls-untrusted",
                                    "Máy chủ dùng chứng chỉ tự ký hoặc không hợp lệ.", "CWE-295"))
     if http is not None:
-        redirects_to_https = http.is_redirect and http.headers.get("location", "").lower().startswith(f"https://{target}")
+        redirects_to_https = _redirects_to_https(http, target)
         if https is None:
             findings.append(NewFinding("Dịch vụ web chỉ chạy HTTP, không có HTTPS", "medium", "no-https",
                                        "Dữ liệu và phiên đăng nhập truyền không mã hóa.", "CWE-319",
-                                       {"http_status": http.status_code}))
+                                       {"http_status": http.status}))
         elif not redirects_to_https:
             findings.append(NewFinding("HTTP không chuyển hướng sang HTTPS", "low", "no-https-redirect",
                                        "Người dùng gõ http:// vẫn dùng kênh không mã hóa.", "CWE-319",
-                                       {"http_status": http.status_code}))
+                                       {"http_status": http.status}))
 
     main = https or http
     h = main.headers
@@ -136,7 +175,7 @@ def _builtin_http(target: str, _ctx: dict) -> StepOutput:
     for name in missing:
         findings.append(NewFinding(f"Thiếu header bảo mật {name}", "low" if name != "X-Content-Type-Options" else "info",
                                    f"missing-header-{name.lower()}", "Header phòng thủ phía trình duyệt chưa được bật.",
-                                   "CWE-693", {"url": str(main.url)}))
+                                   "CWE-693", {"url": main.url}))
     server = h.get("server", "")
     if _VERSION_RE.search(server):
         findings.append(NewFinding("Lộ phiên bản phần mềm máy chủ", "info", "server-version",
@@ -158,13 +197,15 @@ def _fingerprint(tool: str, target: str, key: str) -> str:
 def _save_findings(conn, tenant: str, engagement_id, scan_id, tool: str, target: str,
                    findings: list[NewFinding]) -> None:
     for f in findings:
-        conn.execute(
+        row = conn.execute(
             "INSERT INTO finding (tenant_id, engagement_id, scan_id, target, title, severity, description, cwe, "
             "evidence, fingerprint, source_tool) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (tenant_id, engagement_id, fingerprint) DO UPDATE SET scan_id = EXCLUDED.scan_id, "
-            "evidence = EXCLUDED.evidence, severity = EXCLUDED.severity",
+            "evidence = EXCLUDED.evidence, severity = EXCLUDED.severity RETURNING id",
             (tenant, engagement_id, scan_id, target, f.title, f.severity, f.description, f.cwe,
-             json.dumps(f.evidence), _fingerprint(tool, target, f.key), tool))
+             json.dumps(f.evidence), _fingerprint(tool, target, f.key), tool)).fetchone()
+        conn.execute("INSERT INTO scan_finding (tenant_id, scan_id, finding_id) VALUES (%s, %s, %s) "
+                     "ON CONFLICT DO NOTHING", (tenant, scan_id, row["id"]))
 
 
 def run_scan(tenant: str, scan_id: UUID | str) -> None:

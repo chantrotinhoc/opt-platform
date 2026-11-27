@@ -91,3 +91,53 @@ def test_engines_dir_from_environment_needs_no_repository_layout(monkeypatch, tm
     monkeypatch.setenv("OPT_ENGINES_DIR", str(tmp_path))
     monkeypatch.setattr(recon, "__file__", "/app/opt_api/recon.py")
     assert recon.load_engine("lab-recon-v1")["id"] == "lab-recon-v1"
+
+
+@pytest.mark.parametrize("location,ok", [
+    ("https://app.lab.example.vn/", True),
+    ("https://APP.lab.example.vn./login", True),
+    ("https://app.lab.example.vn.evil.com/", False),   # prefix match would accept this
+    ("https://app.lab.example.vn@evil.com/", False),
+    ("http://app.lab.example.vn/", False),
+])
+def test_https_redirect_check_compares_hosts(monkeypatch, location, ok):
+    def handler(req, _):
+        if req.url.scheme == "http":
+            return httpx.Response(301, headers={"location": location})
+        return httpx.Response(200, headers={"content-security-policy": "frame-ancestors 'none'",
+                                            "strict-transport-security": "max-age=1", "x-content-type-options": "nosniff"})
+    fake_clients(monkeypatch, handler)
+    keys = {f.key for f in recon._builtin_http("app.lab.example.vn", {}).findings}
+    assert ("no-https-redirect" not in keys) == ok
+
+
+def test_ipv6_targets_are_bracketed(monkeypatch):
+    seen = []
+
+    def handler(req, _):
+        seen.append(req.url.host)
+        return httpx.Response(200)
+    fake_clients(monkeypatch, handler)
+    recon._builtin_http("fd00::5", {})
+    assert seen and set(seen) == {"fd00::5"}
+
+
+def test_body_read_is_bounded(monkeypatch):
+    def handler(req, _):
+        return httpx.Response(200, headers={"content-type": "text/html"},
+                              content=b"<title>t</title>" + b"x" * (5 * recon.MAX_BODY))
+    fake_clients(monkeypatch, handler)
+    out = recon._builtin_http("big.lab.example.vn", {})
+    assert out.data["http"]["title"] == "t"
+
+
+def test_probe_stops_when_total_budget_is_spent(monkeypatch):
+    calls = []
+
+    def handler(req, _):
+        calls.append(req.url.scheme)
+        raise httpx.ConnectError("refused", request=req)
+    fake_clients(monkeypatch, handler)
+    monkeypatch.setattr(recon, "TOTAL_BUDGET", 0)
+    recon._builtin_http("slow.lab.example.vn", {})
+    assert calls == []

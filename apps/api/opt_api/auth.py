@@ -60,7 +60,10 @@ _jwks_clients: dict[str, jwt.PyJWKClient] = {}
 def _jwks_signing_key(token: str, jwks_url: str):
     client = _jwks_clients.get(jwks_url)
     if client is None:
-        client = _jwks_clients[jwks_url] = jwt.PyJWKClient(jwks_url, cache_keys=True, lifespan=300, timeout=5)
+        client = _jwks_clients[jwks_url] = jwt.PyJWKClient(
+            # cache_keys=False: individual keys would otherwise be cached with no expiry,
+            # so a key removed from Keycloak (e.g. after compromise) would stay trusted.
+            jwks_url, cache_jwk_set=True, lifespan=300, cache_keys=False, timeout=5)
     return client.get_signing_key_from_jwt(token).key
 
 

@@ -51,11 +51,13 @@ Luồng recon → báo cáo trên mục tiêu lab:
 TOKEN=$(curl -s -X POST localhost:8080/realms/opt/protocol/openid-connect/token \
   -d grant_type=password -d client_id=opt-cli -d username=alice -d password=alice-dev | jq -r .access_token)
 H=(-H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json')
+FROM=$(date -u -d '-1 day' +%FT%TZ); TO=$(date -u -d '+30 days' +%FT%TZ)   # RoE đang hiệu lực
 EID=$(curl -s "${H[@]}" -X POST localhost:8000/api/v1/engagements \
-  -d '{"name":"Lab","roe_valid_from":"2026-12-01T00:00:00+07:00","roe_valid_to":"2026-12-31T23:59:00+07:00",
-       "rules":[{"kind":"domain","value":"lab.example.vn"}]}' | jq -r .id)
+  -d "{\"name\":\"Lab\",\"roe_valid_from\":\"$FROM\",\"roe_valid_to\":\"$TO\",
+       \"rules\":[{\"kind\":\"domain\",\"value\":\"lab.example.vn\"}]}" | jq -r .id)
 SID=$(curl -s "${H[@]}" -X POST localhost:8000/api/v1/engagements/$EID/scans \
   -d '{"target":"juice.lab.example.vn","engine":"lab-recon-v1"}' | jq -r .id)
+until [ "$(curl -s "${H[@]}" localhost:8000/api/v1/scans/$SID | jq -r .status)" = done ]; do sleep 1; done
 curl -s "${H[@]}" localhost:8000/api/v1/scans/$SID/report     # Markdown; thêm ?format=json để lấy JSON
 ```
 
