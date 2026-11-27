@@ -1,0 +1,16 @@
+OPT — Offensive Pentest Orchestration Platform
+Licensed under AGPL-3.0-only.
+
+OPT invokes the following third-party programs as separate processes (aggregation,
+not linking). Each keeps its own license. Verify again whenever a version is pinned.
+
+- subfinder, httpx, naabu, katana, nuclei (ProjectDiscovery) — MIT
+- amass (OWASP) — Apache-2.0
+- OWASP ZAP — Apache-2.0
+- nmap — Nmap Public Source License (do not bundle into commercial images without reviewing the OEM terms)
+- sqlmap — GPL-2.0 (subprocess only, never imported)
+
+Design ideas are inspired by reNgine (GPL-3.0, https://github.com/yogeshojha/rengine)
+and CAI (Alias Robotics, https://aliasrobotics.github.io/cai/). Any code copied from
+reNgine must keep its copyright notice. CAI code must not be imported until its
+license has been reviewed (see docs/adr/0003-license.md).

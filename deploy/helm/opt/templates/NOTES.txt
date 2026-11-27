@@ -1,0 +1,1 @@
+OPT {{ .Chart.AppVersion }} deployed. Templates for api/web/agent/worker are added in S1–S4.
