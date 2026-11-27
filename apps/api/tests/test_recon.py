@@ -83,3 +83,11 @@ def test_report_orders_by_severity_and_escapes_tables():
          {"title": "Medium item", "severity": "medium", "target": "t", "source_tool": "builtin_http", "cwe": "CWE-319"}])
     assert md.index("Medium item") < md.index("Info item")
     assert "Lab \\| Q4" in md and "| Trung bình | 1 |" in md and "bỏ qua: out of scope" in md
+
+
+def test_engines_dir_from_environment_needs_no_repository_layout(monkeypatch, tmp_path):
+    # In the container the package sits at /app/opt_api, with no repository parents.
+    (tmp_path / "lab-recon-v1.yaml").write_text("id: lab-recon-v1\nsteps: []\n")
+    monkeypatch.setenv("OPT_ENGINES_DIR", str(tmp_path))
+    monkeypatch.setattr(recon, "__file__", "/app/opt_api/recon.py")
+    assert recon.load_engine("lab-recon-v1")["id"] == "lab-recon-v1"

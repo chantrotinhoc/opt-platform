@@ -39,8 +39,9 @@ HTTP_TIMEOUT = 5.0
 
 
 def engines_dir() -> Path:
-    default = Path(__file__).resolve().parents[3] / "engines"
-    return Path(os.environ.get("OPT_ENGINES_DIR", default))
+    if env := os.environ.get("OPT_ENGINES_DIR"):
+        return Path(env)
+    return Path(__file__).resolve().parents[3] / "engines"  # repository checkout
 
 
 def load_engine(engine_id: str) -> dict:
