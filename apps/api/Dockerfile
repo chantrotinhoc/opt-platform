@@ -4,6 +4,8 @@ WORKDIR /app
 COPY apps/api/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY apps/api/opt_api /app/opt_api
+COPY engines /app/engines
+ENV OPT_ENGINES_DIR=/app/engines
 RUN useradd --system --uid 10001 opt
 USER 10001
 EXPOSE 8000

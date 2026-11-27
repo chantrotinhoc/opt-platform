@@ -11,8 +11,6 @@ from opt_api.main import app
 
 pytestmark = pytest.mark.db
 
-A = {"X-OPT-Tenant": "demo-a"}
-B = {"X-OPT-Tenant": "demo-b"}
 NOW = datetime.now(timezone.utc)
 
 
@@ -20,6 +18,16 @@ NOW = datetime.now(timezone.utc)
 def client():
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture
+def A(token):
+    return token("demo-a")
+
+
+@pytest.fixture
+def B(token):
+    return token("demo-b")
 
 
 def _app_conn():
@@ -34,11 +42,11 @@ def _engagement(client, headers, name, rules):
     return r.json()["id"]
 
 
-def test_unknown_tenant_rejected(client):
-    assert client.get("/api/v1/whoami", headers={"X-OPT-Tenant": "nobody-here"}).status_code == 403
+def test_unknown_tenant_rejected(client, token):
+    assert client.get("/api/v1/whoami", headers=token("nobody-here")).status_code == 403
 
 
-def test_engagements_are_invisible_across_tenants(client):
+def test_engagements_are_invisible_across_tenants(client, A, B):
     eid = _engagement(client, A, "iso-a", [{"kind": "domain", "value": "lab.example.vn"}])
     assert eid in [e["id"] for e in client.get("/api/v1/engagements", headers=A).json()]
     assert eid not in [e["id"] for e in client.get("/api/v1/engagements", headers=B).json()]
@@ -47,7 +55,7 @@ def test_engagements_are_invisible_across_tenants(client):
     assert r.status_code == 404
 
 
-def test_scope_check_end_to_end(client):
+def test_scope_check_end_to_end(client, A):
     eid = _engagement(client, A, "scope-a", [{"kind": "domain", "value": "lab.example.vn"},
                                              {"kind": "domain", "value": "pay.lab.example.vn", "exclude": True}])
 
@@ -70,7 +78,7 @@ def test_scope_check_end_to_end(client):
 
 def test_no_tenant_set_sees_nothing():
     with _app_conn() as conn:
-        for table in ["tenant", "engagement", "scope_rule", "target", "finding", "agent_step", "audit_event"]:
+        for table in ["tenant", "engagement", "scope_rule", "target", "finding", "agent_step", "audit_event", "scan"]:
             assert conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0, table
 
 
@@ -104,7 +112,7 @@ def test_app_role_cannot_create_tenants():
             conn.execute("INSERT INTO tenant (id, name, kms_key_id) VALUES ('evil', 'x', 'k')")
 
 
-def test_child_rows_cannot_reference_another_tenants_engagement(client):
+def test_child_rows_cannot_reference_another_tenants_engagement(client, B):
     """FK checks bypass RLS, so the composite (tenant_id, engagement_id) key must
     reject this even for the table owner."""
     eid = _engagement(client, B, "fk-b", [{"kind": "domain", "value": "lab.example.vn"}])

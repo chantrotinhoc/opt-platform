@@ -1,0 +1,180 @@
+{
+  "realm": "opt",
+  "displayName": "OPT (DEV ONLY)",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 300,
+  "roles": {
+    "realm": [
+      {
+        "name": "opt-viewer",
+        "description": "Read engagements, findings and reports"
+      },
+      {
+        "name": "opt-tester",
+        "description": "Start scans and scope checks"
+      },
+      {
+        "name": "opt-lead",
+        "description": "Create engagements and approve medium-risk steps"
+      },
+      {
+        "name": "opt-owner",
+        "description": "Tenant administration"
+      }
+    ]
+  },
+  "groups": [
+    {
+      "name": "tenant-demo-a"
+    },
+    {
+      "name": "tenant-demo-b"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "opt-web",
+      "name": "OPT web",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "tenant groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "full.path": "false",
+            "claim.name": "groups",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience opt-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "opt-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "opt-cli",
+      "name": "OPT CLI and smoke test (DEV ONLY: password grant)",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "tenant groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "full.path": "false",
+            "claim.name": "groups",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience opt-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "opt-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@demo-a.example.vn",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Lead",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice-dev",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "opt-lead"
+      ],
+      "groups": [
+        "/tenant-demo-a"
+      ]
+    },
+    {
+      "username": "victor",
+      "enabled": true,
+      "email": "victor@demo-a.example.vn",
+      "emailVerified": true,
+      "firstName": "Victor",
+      "lastName": "Viewer",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "victor-dev",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "opt-viewer"
+      ],
+      "groups": [
+        "/tenant-demo-a"
+      ]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "email": "bob@demo-b.example.vn",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Lead",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob-dev",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "opt-lead"
+      ],
+      "groups": [
+        "/tenant-demo-b"
+      ]
+    }
+  ]
+}
