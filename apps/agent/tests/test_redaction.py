@@ -65,3 +65,10 @@ def test_credential_containing_earlier_placeholder_round_trips():
     out = r.redact(text)
     assert token not in out
     assert r.restore(out) == text
+
+
+def test_unquoted_credential_equal_to_earlier_placeholder_round_trips():
+    r = Redactor()
+    token = r.redact("10.0.0.1")
+    text = f"password={token}"
+    assert r.restore(r.redact(text)) == text
