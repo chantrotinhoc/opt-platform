@@ -1,0 +1,32 @@
+package opt.scope_test
+
+import rego.v1
+
+import data.opt.scope
+
+eng := {
+	"locked": false,
+	"roe_valid_from": "2020-01-01T00:00:00Z",
+	"roe_valid_to": "2099-01-01T00:00:00Z",
+	"rules": [
+		{"kind": "domain", "value": "example.vn", "exclude": false},
+		{"kind": "domain", "value": "pay.example.vn", "exclude": true},
+		{"kind": "cidr", "value": "203.0.113.0/24", "exclude": false},
+	],
+}
+
+test_in_scope_allowed if {
+	scope.allow with input as {"engagement": eng, "target": "app.example.vn", "risk": "low", "target_verified": true, "in_window": true}
+}
+
+test_excluded_denied if {
+	not scope.allow with input as {"engagement": eng, "target": "pay.example.vn", "risk": "passive"}
+}
+
+test_unverified_active_denied if {
+	not scope.allow with input as {"engagement": eng, "target": "203.0.113.9", "risk": "medium", "target_verified": false, "in_window": true}
+}
+
+test_lookalike_denied if {
+	not scope.allow with input as {"engagement": eng, "target": "evil-example.vn", "risk": "passive"}
+}

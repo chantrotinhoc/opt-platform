@@ -1,0 +1,18 @@
+id: dns-v1
+version: 1.0.0
+description: Kiểm tra DNS (tái dùng kinh nghiệm DNS Auto Pentest)
+requires_verified_target: true
+steps:
+  - id: subdomains
+    tool: subfinder
+    risk: passive
+  - id: resolve
+    tool: dnsx
+    risk: passive
+    needs: [subdomains]
+    args: { records: [a, aaaa, cname, mx, ns, txt] }
+  - id: dns_misconfig
+    tool: nuclei
+    risk: low
+    needs: [resolve]
+    args: { tags: [dns, takeover] }

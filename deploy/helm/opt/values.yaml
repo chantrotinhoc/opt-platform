@@ -1,0 +1,24 @@
+# Values for the ITSTARVN data center. See docs/onprem-deployment.md.
+image:
+  registry: harbor.opt.internal   # Harbor in-DC, images signed with cosign
+  tag: "0.1.0"
+
+api:
+  replicas: 3
+web:
+  replicas: 2
+agent:
+  replicas: 2
+  modelRouter:
+    cloudEnabled: true            # global switch; tenants with local_only never use cloud
+    localEndpoint: http://vllm.opt-ai.svc:8000/v1
+
+worker:
+  runtimeClassName: gvisor        # every tool pod runs in a gVisor sandbox
+  namespacePerTenant: true
+  egressGateway: true             # per-tenant public egress IP
+
+postgres:
+  external: true                  # CloudNativePG cluster, see deploy/onprem
+temporal:
+  external: true

@@ -1,0 +1,19 @@
+id: network-external-v1
+version: 1.0.0
+description: Khám phá cổng và dịch vụ trên dải IP công khai
+requires_verified_target: true
+steps:
+  - id: ports
+    tool: naabu
+    risk: low
+    args: { top_ports: 1000, rate: 300 }
+  - id: services
+    tool: nmap
+    risk: medium
+    needs: [ports]
+    args: { flags: ["-sV", "--version-light"], scripts: [] }
+  - id: vulns
+    tool: nuclei
+    risk: medium
+    needs: [services]
+    args: { tags: [network, cve], exclude_tags: [dos, intrusive] }

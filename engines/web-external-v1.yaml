@@ -1,0 +1,28 @@
+id: web-external-v1
+version: 1.0.0
+description: Recon và quét lỗ hổng web bên ngoài
+requires_verified_target: true
+steps:
+  - id: subdomains
+    tool: subfinder
+    risk: passive
+    args: { all_sources: true }
+  - id: probe
+    tool: httpx
+    risk: low
+    needs: [subdomains]
+    args: { tech_detect: true, rate_limit: 50 }
+  - id: screenshots
+    tool: gowitness
+    risk: low
+    needs: [probe]
+  - id: crawl
+    tool: katana
+    risk: low
+    needs: [probe]
+    args: { depth: 3 }
+  - id: vulns
+    tool: nuclei
+    risk: medium
+    needs: [probe, crawl]
+    args: { severity: [medium, high, critical], exclude_tags: [dos, intrusive] }
