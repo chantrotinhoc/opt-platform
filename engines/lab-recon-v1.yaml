@@ -1,0 +1,12 @@
+id: lab-recon-v1
+version: 1.0.0
+description: Recon tối thiểu chạy trong API (MVP), dùng cho mục tiêu lab. Không cần công cụ ngoài.
+requires_verified_target: true
+steps:
+  - id: resolve
+    tool: builtin_dns
+    risk: passive
+  - id: http_probe
+    tool: builtin_http
+    risk: low
+    needs: [resolve]

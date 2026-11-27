@@ -19,7 +19,7 @@ Trạng thái ghi rõ cho từng nguyên tắc: **đã có** (có code và test 
 
 | Thư mục | Nội dung |
 | --- | --- |
-| `apps/api` | FastAPI: tenant, RBAC, engagement, Scope Guard, findings, báo cáo |
+| `apps/api` | FastAPI: xác thực Keycloak, RBAC, engagement, Scope Guard, quét recon MVP, findings, báo cáo |
 | `apps/worker` | Temporal worker chạy scan engine, adapter cho từng tool |
 | `apps/agent` | Agent Planner/Reporter, model router cloud/local, lớp che dữ liệu |
 | `apps/web` | Giao diện Next.js |
@@ -35,22 +35,33 @@ Trạng thái ghi rõ cho từng nguyên tắc: **đã có** (có code và test 
 Cần Docker (có Compose v2), `make`, `curl` và Python 3.12.
 
 ```bash
-make up        # PostgreSQL (đã migrate + seed 2 tenant demo) và API tại http://localhost:8000
-make smoke     # tạo engagement, kiểm tra scope, thử truy cập chéo tenant, kiểm tra chuỗi audit
-# Giao diện OpenAPI: http://localhost:8000/docs
+make up        # PostgreSQL (migrate + seed), Keycloak, API tại http://localhost:8000, mục tiêu lab
+make smoke     # đăng nhập Keycloak, kiểm tra RBAC và scope, quét lab, đọc báo cáo, kiểm tra chuỗi audit
+# Giao diện OpenAPI: http://localhost:8000/docs · Keycloak: http://localhost:8080 (admin / admin-dev)
 make down      # dừng và xóa dữ liệu dev
 ```
 
-Ở sprint 1, tenant được truyền qua header `X-OPT-Tenant` (`demo-a` hoặc `demo-b`). Từ S2, tenant lấy từ token Keycloak.
+API chỉ nhận token Keycloak (`Authorization: Bearer ...`). Tenant lấy từ nhóm `tenant-<id>` trong token, vai trò từ realm role: `opt-viewer` < `opt-tester` < `opt-lead` < `opt-owner`. Header `X-OPT-Tenant` của sprint 1 không còn tác dụng.
 
-Ví dụ:
+Tài khoản dev (realm `opt`, CHỈ DÙNG CHO DEV): `alice` / `alice-dev` (lead, demo-a), `victor` / `victor-dev` (viewer, demo-a), `bob` / `bob-dev` (lead, demo-b).
+
+Luồng recon → báo cáo trên mục tiêu lab:
 
 ```bash
-curl -s -H 'X-OPT-Tenant: demo-a' -H 'Content-Type: application/json' \
-  -X POST localhost:8000/api/v1/engagements \
-  -d '{"name":"Lab","roe_valid_from":"2026-11-01T00:00:00Z","roe_valid_to":"2026-12-31T00:00:00Z",
-       "rules":[{"kind":"domain","value":"lab.example.vn"}]}'
+TOKEN=$(curl -s -X POST localhost:8080/realms/opt/protocol/openid-connect/token \
+  -d grant_type=password -d client_id=opt-cli -d username=alice -d password=alice-dev | jq -r .access_token)
+H=(-H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json')
+FROM=$(date -u -d '-1 day' +%FT%TZ); TO=$(date -u -d '+30 days' +%FT%TZ)   # RoE đang hiệu lực
+EID=$(curl -s "${H[@]}" -X POST localhost:8000/api/v1/engagements \
+  -d "{\"name\":\"Lab\",\"roe_valid_from\":\"$FROM\",\"roe_valid_to\":\"$TO\",
+       \"rules\":[{\"kind\":\"domain\",\"value\":\"lab.example.vn\"}]}" | jq -r .id)
+SID=$(curl -s "${H[@]}" -X POST localhost:8000/api/v1/engagements/$EID/scans \
+  -d '{"target":"juice.lab.example.vn","engine":"lab-recon-v1"}' | jq -r .id)
+until [ "$(curl -s "${H[@]}" localhost:8000/api/v1/scans/$SID | jq -r .status)" = done ]; do sleep 1; done
+curl -s "${H[@]}" localhost:8000/api/v1/scans/$SID/report     # Markdown; thêm ?format=json để lấy JSON
 ```
+
+Chỉ target **đã xác minh** và nằm trong scope mới được quét. Môi trường dev chỉ có mục tiêu lab `juice.lab.example.vn` (container `lab-web`, chỉ trong mạng compose). Tài sản production thật chỉ được thêm sau khi chủ tài sản ký RoE.
 
 Temporal, OPA và MinIO (cần từ S3/S4): `docker compose -f docker-compose.dev.yml --profile full up -d`.
 

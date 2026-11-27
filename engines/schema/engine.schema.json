@@ -17,7 +17,7 @@
         "additionalProperties": false,
         "properties": {
           "id": {"type": "string", "pattern": "^[a-z0-9_]+$"},
-          "tool": {"enum": ["subfinder", "amass", "dnsx", "httpx", "naabu", "katana", "nuclei", "nmap", "gowitness"]},
+          "tool": {"enum": ["subfinder", "amass", "dnsx", "httpx", "naabu", "katana", "nuclei", "nmap", "gowitness", "builtin_dns", "builtin_http"]},
           "risk": {"enum": ["passive", "low", "medium", "high"]},
           "needs": {"type": "array", "items": {"type": "string"}},
           "args": {"type": "object"}
