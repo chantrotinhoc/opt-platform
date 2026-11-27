@@ -5,10 +5,13 @@ with stable placeholders, then restores them in the model's answer.
 """
 from __future__ import annotations
 
+import ipaddress
 import re
 from dataclasses import dataclass, field
 
 _SECRET = re.compile(r"(?i)\b((?:password|passwd|pwd|token|secret|api[_-]?key)[=:]\s?)([^\s'\",;]+)")
+
+_IPV6_CANDIDATE = re.compile(r"(?<![\w:])[0-9A-Fa-f:]*:[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(?![\w:])")
 
 _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("EMAIL", re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")),
@@ -35,6 +38,14 @@ class Redactor:
 
     def redact(self, text: str) -> str:
         text = _SECRET.sub(lambda m: m.group(1) + self._token("SECRET", m.group(2)), text)
+        def ipv6(m: re.Match[str]) -> str:
+            try:
+                ipaddress.IPv6Address(m.group(0))
+            except ValueError:
+                return m.group(0)
+            return self._token("IP", m.group(0))
+
+        text = _IPV6_CANDIDATE.sub(ipv6, text)
         for kind, pattern in _PATTERNS:
             text = pattern.sub(lambda m, k=kind: self._token(k, m.group(0)), text)
         return text

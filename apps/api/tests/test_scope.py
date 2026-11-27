@@ -1,7 +1,9 @@
 from datetime import datetime, time, timedelta, timezone
 
+import pytest
+
 from opt_api.scope import (Engagement, Risk, ScanWindow, ScopeRule, evaluate,
-                           in_scope, needs_approval)
+                           in_scope, needs_approval, normalize_target)
 
 NOW = datetime(2026, 12, 2, 3, 0, tzinfo=timezone.utc)  # Wed 10:00 in Vietnam
 
@@ -51,7 +53,26 @@ def test_locked_engagement_denied():
     assert not evaluate(eng(locked=True), "app.example.vn", Risk.PASSIVE, NOW, True).allowed
 
 
-def test_agent_medium_risk_needs_approval():
+def test_approval_rules():
     assert needs_approval(Risk.MEDIUM, requested_by_agent=True)
     assert not needs_approval(Risk.LOW, requested_by_agent=True)
     assert not needs_approval(Risk.MEDIUM, requested_by_agent=False)
+    assert needs_approval(Risk.HIGH, requested_by_agent=False)
+
+
+@pytest.mark.parametrize("bad", ["https://app.example.vn", "app.example.vn:8443", "app.example.vn/x",
+                                 "*.example.vn", "app example.vn", "", "app.example.vn\x00"])
+def test_malformed_targets_denied(bad):
+    assert not in_scope(eng(), bad)
+    assert not evaluate(eng(), bad, Risk.PASSIVE, NOW, True).allowed
+
+
+def test_target_normalised():
+    assert normalize_target(" App.Example.VN. ") == "app.example.vn"
+    assert in_scope(eng(), "APP.EXAMPLE.VN.")
+
+
+def test_wildcard_rule_excludes_apex():
+    e = eng(rules=[ScopeRule("domain", "*.example.vn")])
+    assert in_scope(e, "a.example.vn")
+    assert not in_scope(e, "example.vn")

@@ -1,11 +1,11 @@
-# Test cách ly tenant (S2)
+# Test cách ly tenant
 
-Chạy với PostgreSQL thật (service container trong CI), dùng role `opt_app`:
+`test_tenant_isolation.py` chạy với PostgreSQL thật (job `db` trong CI, hoặc `make test-db` ở máy dev):
 
-1. Tạo tenant A và B, mỗi tenant 1 engagement, 1 finding.
-2. Với `app.tenant_id = 'a'`: SELECT trên mọi bảng chỉ thấy bản ghi của A.
-3. INSERT bản ghi gắn `tenant_id = 'b'` khi đang là A phải bị từ chối (WITH CHECK).
-4. Không đặt `app.tenant_id`: mọi SELECT trả về 0 dòng.
-5. UPDATE/DELETE trên `audit_event` phải bị từ chối.
+- Không đặt `app.tenant_id`: mọi bảng trả về 0 dòng với role `opt_app`.
+- Tenant A không thấy, không sửa được và không chuyển được dữ liệu sang tenant B.
+- API trả 404 khi tenant B gọi engagement của tenant A, và 403 với tenant không tồn tại.
+- `audit_event` chỉ cho phép thêm; kể cả chủ bảng cũng bị trigger chặn UPDATE/DELETE.
+- Role ứng dụng không tạo được tenant.
 
-Cổng G1 yêu cầu bộ test này xanh trong CI.
+Đây là một phần của cổng G1; phần còn lại (egress gateway, Scope Guard ở tầng mạng) làm ở S3.

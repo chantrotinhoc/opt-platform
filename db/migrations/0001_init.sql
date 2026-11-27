@@ -1,6 +1,7 @@
 -- OPT initial schema. Every business table carries tenant_id and is protected by
 -- Row-Level Security. The API sets `SET LOCAL app.tenant_id = '<id>'` per transaction
--- and connects as role opt_app, which is NOT the table owner and has no BYPASSRLS.
+-- and connects as role opt_app (0000_roles.sql), which is NOT the table owner
+-- and has no BYPASSRLS. An unset app.tenant_id matches no rows.
 
 CREATE TABLE tenant (
     id              text PRIMARY KEY,
@@ -94,5 +95,28 @@ BEGIN
     END LOOP;
 END $$;
 
--- The application role may only append to the audit log.
-REVOKE UPDATE, DELETE, TRUNCATE ON audit_event FROM PUBLIC;
+-- A tenant can see only its own tenant row.
+ALTER TABLE tenant ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tenant FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_self ON tenant
+    USING (id = current_setting('app.tenant_id', true));
+
+CREATE INDEX audit_event_tenant_seq ON audit_event (tenant_id, seq DESC);
+
+-- Privileges for the application role. Tenants are created by the platform
+-- operator (owner role), never through the application role.
+GRANT USAGE ON SCHEMA public TO opt_app;
+GRANT SELECT ON tenant TO opt_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON engagement, scope_rule, target, finding, agent_step TO opt_app;
+GRANT SELECT, INSERT ON audit_event TO opt_app;
+GRANT USAGE ON SEQUENCE audit_event_seq_seq TO opt_app;
+
+-- Audit log is append-only even for roles that might be granted more later.
+CREATE FUNCTION audit_event_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_event is append-only';
+END $$;
+CREATE TRIGGER audit_event_no_update BEFORE UPDATE OR DELETE ON audit_event
+    FOR EACH ROW EXECUTE FUNCTION audit_event_immutable();
+CREATE TRIGGER audit_event_no_truncate BEFORE TRUNCATE ON audit_event
+    FOR EACH STATEMENT EXECUTE FUNCTION audit_event_immutable();

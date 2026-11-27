@@ -28,11 +28,36 @@ người duyệt (kiểu CAI), và trải nghiệm workspace/báo cáo/lịch qu
 | `tests/` | Test cách ly tenant và an toàn LLM |
 | `docs/` | Sprint plan, ADR, kiến trúc triển khai |
 
+## Khởi động nhanh
+
+Cần Docker (có Compose v2), `make`, `curl` và Python 3.12.
+
+```bash
+make up        # PostgreSQL (đã migrate + seed 2 tenant demo) và API tại http://localhost:8000
+make smoke     # tạo engagement, kiểm tra scope, thử truy cập chéo tenant, kiểm tra chuỗi audit
+# Giao diện OpenAPI: http://localhost:8000/docs
+make down      # dừng và xóa dữ liệu dev
+```
+
+Ở sprint 1, tenant được truyền qua header `X-OPT-Tenant` (`demo-a` hoặc `demo-b`). Từ S2, tenant lấy từ token Keycloak.
+
+Ví dụ:
+
+```bash
+curl -s -H 'X-OPT-Tenant: demo-a' -H 'Content-Type: application/json' \
+  -X POST localhost:8000/api/v1/engagements \
+  -d '{"name":"Lab","roe_valid_from":"2026-11-01T00:00:00Z","roe_valid_to":"2026-12-31T00:00:00Z",
+       "rules":[{"kind":"domain","value":"lab.example.vn"}]}'
+```
+
+Temporal, OPA và MinIO (cần từ S3/S4): `docker compose -f docker-compose.dev.yml --profile full up -d`.
+
 ## Chạy test
 
 ```bash
 pip install -r requirements-dev.txt
-make test
+make test       # unit test, không cần dịch vụ nào
+make test-db    # thêm test cách ly tenant trên PostgreSQL thật (sau `make up`)
 ```
 
 ## Tài liệu

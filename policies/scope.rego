@@ -18,18 +18,27 @@ roe_valid if {
 	time.now_ns() <= time.parse_rfc3339_ns(input.engagement.roe_valid_to)
 }
 
+# "example.vn" matches the apex and every subdomain.
 matches(rule) if {
 	rule.kind == "domain"
+	not startswith(rule.value, "*.")
 	t := lower(trim_suffix(input.target, "."))
-	d := lower(trim_prefix(rule.value, "*."))
-	t == d
+	t == lower(rule.value)
 }
 
 matches(rule) if {
 	rule.kind == "domain"
+	not startswith(rule.value, "*.")
 	t := lower(trim_suffix(input.target, "."))
-	d := lower(trim_prefix(rule.value, "*."))
-	endswith(t, concat("", [".", d]))
+	endswith(t, concat("", [".", lower(rule.value)]))
+}
+
+# "*.example.vn" matches subdomains only, not the apex.
+matches(rule) if {
+	rule.kind == "domain"
+	startswith(rule.value, "*.")
+	t := lower(trim_suffix(input.target, "."))
+	endswith(t, lower(substring(rule.value, 1, -1)))
 }
 
 matches(rule) if {

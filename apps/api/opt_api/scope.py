@@ -7,6 +7,7 @@ network level, so a compromised worker still cannot leave scope.
 from __future__ import annotations
 
 import ipaddress
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, time
 from enum import Enum
@@ -52,17 +53,39 @@ class Decision:
     reason: str
 
 
+_HOST_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+
+
+def normalize_target(raw: str) -> str:
+    """Accept only a bare hostname or IP address. URLs, ports, paths, wildcards
+    and whitespace are rejected so that scope matching cannot be tricked."""
+    value = raw.strip().lower().rstrip(".")
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        pass
+    if not _HOST_RE.fullmatch(value):
+        raise ValueError(f"invalid target: {raw!r}")
+    return value
+
+
 def _match(rule: ScopeRule, target: str) -> bool:
     if rule.kind == "cidr":
         try:
             return ipaddress.ip_address(target) in ipaddress.ip_network(rule.value, strict=False)
         except ValueError:
             return False
-    t, d = target.lower().rstrip("."), rule.value.lower().lstrip("*.").rstrip(".")
-    return t == d or t.endswith("." + d)
+    value = rule.value.lower().rstrip(".")
+    if value.startswith("*."):          # "*.example.vn": subdomains only
+        return target.endswith(value[1:])
+    return target == value or target.endswith("." + value)  # apex + subdomains
 
 
 def in_scope(engagement: Engagement, target: str) -> bool:
+    try:
+        target = normalize_target(target)
+    except ValueError:
+        return False
     if any(r.exclude and _match(r, target) for r in engagement.rules):
         return False
     return any(not r.exclude and _match(r, target) for r in engagement.rules)
@@ -80,6 +103,10 @@ def evaluate(engagement: Engagement, target: str, risk: Risk, now: datetime,
              target_verified: bool) -> Decision:
     if engagement.locked:
         return Decision(False, "engagement locked")
+    try:
+        target = normalize_target(target)
+    except ValueError as exc:
+        return Decision(False, str(exc))
     if not (engagement.roe_valid_from <= now <= engagement.roe_valid_to):
         return Decision(False, "RoE not valid at this time")
     if not in_scope(engagement, target):
@@ -92,5 +119,8 @@ def evaluate(engagement: Engagement, target: str, risk: Risk, now: datetime,
 
 
 def needs_approval(risk: Risk, requested_by_agent: bool) -> bool:
-    """Agent-initiated steps at medium risk or above wait for a human."""
-    return requested_by_agent and risk in (Risk.MEDIUM, Risk.HIGH)
+    """High-risk steps (exploitation) always need a Lead's approval; medium-risk
+    steps need one when an AI agent proposed them."""
+    if risk is Risk.HIGH:
+        return True
+    return requested_by_agent and risk is Risk.MEDIUM

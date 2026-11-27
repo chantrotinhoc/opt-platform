@@ -30,3 +30,13 @@ test_unverified_active_denied if {
 test_lookalike_denied if {
 	not scope.allow with input as {"engagement": eng, "target": "evil-example.vn", "risk": "passive"}
 }
+
+test_wildcard_excludes_apex if {
+	wild := object.union(eng, {"rules": [{"kind": "domain", "value": "*.example.vn", "exclude": false}]})
+	scope.allow with input as {"engagement": wild, "target": "a.example.vn", "risk": "passive"}
+	not scope.allow with input as {"engagement": wild, "target": "example.vn", "risk": "passive"}
+}
+
+test_high_risk_requires_verification if {
+	not scope.allow with input as {"engagement": eng, "target": "app.example.vn", "risk": "high", "target_verified": false, "in_window": true}
+}
